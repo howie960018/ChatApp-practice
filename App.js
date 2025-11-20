@@ -150,7 +150,7 @@ export default function App() {
       setCurrentChatPartner(targetUser);
       setCurrentRoomId(roomId);
     } catch (error) {
-      Alert.alert("錯誤", "無法進入聊天室：" + error.message);
+      Alert.alert("錯誤", "無法進入聊天室:" + error.message);
     } finally {
       setIsLoading(false);
     }
@@ -180,7 +180,7 @@ export default function App() {
          senderId: user.uid,
          receiverId: receiverId
        });
-       // 訊息送出後稍微延遲再捲動，確保鍵盤彈出/收回動畫順暢
+       // 訊息送出後稍微延遲再捲動,確保鍵盤彈出/收回動畫順暢
        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
     } catch (error) {
       console.error("App.js 發送錯誤詳情:", error);
@@ -188,31 +188,98 @@ export default function App() {
     }
   };
 
+  // 圖片選擇處理 (強化版)
   const handlePickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') return Alert.alert('權限不足');
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.7,
-    });
-
-    if (!result.canceled) {
-      setIsLoading(true);
-      try {
-        const receiverId = currentChatPartner ? currentChatPartner.id : null;
-        await sendImageMessage({
-          roomId: currentRoomId,
-          senderId: user.uid,
-          receiverId: receiverId,
-          imageUri: result.assets[0].uri
-        });
-      } catch (error) {
-        Alert.alert("圖片發送失敗", error.message);
-      } finally {
-        setIsLoading(false);
+    console.log('🖼️ 使用者點擊圖片按鈕');
+    
+    try {
+      // 1. 請求權限
+      console.log('🔐 請求媒體庫權限...');
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        console.log('❌ 權限被拒絕');
+        return Alert.alert(
+          '權限不足', 
+          '需要媒體庫權限才能選擇圖片,請到設定中開啟權限',
+          [{ text: '確定' }]
+        );
       }
+      
+      console.log('✅ 權限已授予');
+
+      // 2. 啟動圖片選擇器
+      console.log('📱 啟動圖片選擇器...');
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7, // 壓縮品質 (0-1)
+      });
+
+      console.log('📋 圖片選擇結果:', {
+        canceled: result.canceled,
+        hasAssets: result.assets ? result.assets.length : 0
+      });
+
+      // 3. 檢查使用者是否取消
+      if (result.canceled) {
+        console.log('ℹ️ 使用者取消選擇圖片');
+        return;
+      }
+
+      // 4. 驗證結果
+      if (!result.assets || result.assets.length === 0) {
+        console.log('❌ 沒有選擇到圖片');
+        return Alert.alert('錯誤', '沒有選擇到圖片');
+      }
+
+      const imageUri = result.assets[0].uri;
+      console.log('✅ 已選擇圖片:', imageUri);
+
+      // 5. 驗證必要資料
+      if (!currentRoomId) {
+        console.log('❌ 沒有當前聊天室 ID');
+        return Alert.alert('錯誤', '請先選擇聊天對象');
+      }
+
+      if (!user?.uid) {
+        console.log('❌ 使用者未登入');
+        return Alert.alert('錯誤', '請先登入');
+      }
+
+      // 6. 開始上傳
+      console.log('⏳ 開始上傳圖片...');
+      setIsLoading(true);
+      
+      const receiverId = currentChatPartner ? currentChatPartner.id : null;
+      
+      await sendImageMessage({
+        roomId: currentRoomId,
+        senderId: user.uid,
+        receiverId: receiverId,
+        imageUri: imageUri
+      });
+
+      console.log('✅ 圖片發送成功!');
+      
+      // 捲動到底部
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 300);
+      
+    } catch (error) {
+      console.error('❌ handlePickImage 錯誤:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+      
+      Alert.alert(
+        "圖片發送失敗", 
+        error.message || '未知錯誤',
+        [{ text: '確定' }]
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -224,7 +291,7 @@ export default function App() {
   };
 
   const handleLongPressRoom = (roomId) => {
-    Alert.alert("刪除對話", "確定要刪除整個對話紀錄嗎？", [
+    Alert.alert("刪除對話", "確定要刪除整個對話紀錄嗎?", [
       { text: "取消", style: "cancel" },
       { text: "刪除", style: "destructive", onPress: () => deleteConversation(roomId) }
     ]);
@@ -270,7 +337,7 @@ export default function App() {
              {isLoading ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>{isLoginMode ? '登入' : '註冊'}</Text>}
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setIsLoginMode(!isLoginMode)} style={{marginTop:20}}>
-            <Text style={{color:'#007AFF'}}>{isLoginMode ? '還沒有帳號？去註冊' : '已有帳號？去登入'}</Text>
+            <Text style={{color:'#007AFF'}}>{isLoginMode ? '還沒有帳號?去註冊' : '已有帳號?去登入'}</Text>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -292,7 +359,7 @@ export default function App() {
           <View style={{width:40}} /> 
         </View>
 
-        {/* 修正重點：
+        {/* 修正重點:
           1. KeyboardAvoidingView 包住 FlatList 和 Input
           2. behavior 設為 padding (iOS) / undefined (Android)
           3. keyboardVerticalOffset 設為 Header 高度 + 安全區域
@@ -318,7 +385,11 @@ export default function App() {
                 >
                   <View style={[styles.msgBubble, isMe ? styles.msgBubbleMe : styles.msgBubbleOther]}>
                     {item.type === 'image' ? (
-                      <Image source={{uri: item.image}} style={{width: 200, height: 150, borderRadius: 10}} resizeMode="cover" />
+                      <Image 
+                        source={{uri: item.image}} 
+                        style={{width: 200, height: 150, borderRadius: 10}} 
+                        resizeMode="cover" 
+                      />
                     ) : (
                       <Text style={isMe ? styles.textMe : styles.textOther}>{item.text}</Text>
                     )}
@@ -334,20 +405,27 @@ export default function App() {
                 </TouchableOpacity>
               );
             }}
-            // 當使用者拖曳列表時，自動收起鍵盤
+            // 當使用者拖曳列表時,自動收起鍵盤
             onScrollBeginDrag={Keyboard.dismiss} 
             onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           />
           
           <View style={styles.inputBar}>
-            <TouchableOpacity onPress={handlePickImage} style={styles.iconBtn}><Text style={{fontSize:24}}>📷</Text></TouchableOpacity>
+            <TouchableOpacity 
+              onPress={handlePickImage} 
+              style={styles.iconBtn}
+              disabled={isLoading}
+            >
+              <Text style={{fontSize:24}}>{isLoading ? '⏳' : '📷'}</Text>
+            </TouchableOpacity>
             <TextInput 
               style={styles.inputMsg} 
               value={inputText} 
               onChangeText={setInputText} 
               placeholder="輸入訊息..."
               multiline
+              editable={!isLoading}
             />
             <TouchableOpacity onPress={handleSendMessage} style={styles.sendBtn} disabled={isLoading}>
               {isLoading ? <ActivityIndicator size="small" color="#fff"/> : <Text style={{color:'#fff', fontWeight:'bold'}}>發送</Text>}
