@@ -1,49 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, 
-  KeyboardAvoidingView, Platform, FlatList, ActivityIndicator, Image, Keyboard,
-  TouchableWithoutFeedback 
+import {
+  StyleSheet, Text, View, TextInput, TouchableOpacity, Alert,
+  KeyboardAvoidingView, Platform, FlatList, Keyboard
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker'; 
+import * as ImagePicker from 'expo-image-picker';
+import MessageBubble from './components/MessageBubble';
+import ChatInputBar from './components/ChatInputBar';
+import LoginScreen from './screens/LoginScreen';
 
 // 引入 Firebase 核心與 Auth
 import { auth, db } from './firebaseConfig';
-import { 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
+import {
   signOut,
-  onAuthStateChanged 
+  onAuthStateChanged
 } from 'firebase/auth';
-import { 
-  collection, query, onSnapshot, orderBy, where 
+import {
+  collection, query, onSnapshot, orderBy, where, doc, getDoc
 } from 'firebase/firestore';
 
 // 引入 Helper
-import { 
-  createUser, 
-  createChatRoom, 
-  sendMessage, 
-  sendImageMessage, 
-  markRoomMessagesAsRead, 
-  softDeleteMessage, 
-  deleteConversation 
+import {
+  createChatRoom,
+  sendMessage,
+  sendImageMessage,
+  markRoomMessagesAsRead,
+  softDeleteMessage,
+  deleteConversation
 } from './firestoreSchema';
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  // Auth
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [isLoginMode, setIsLoginMode] = useState(true);
+  const [currentUserData, setCurrentUserData] = useState(null);
 
   // List
   const [allUsers, setAllUsers] = useState([]);
-  const [filteredUsers, setFilteredUsers] = useState([]); 
-  const [searchKeyword, setSearchKeyword] = useState(''); 
+  const [filteredUsers, setFilteredUsers] = useState([]);
+  const [searchKeyword, setSearchKeyword] = useState('');
   const [myChatRooms, setMyChatRooms] = useState([]);
 
   // Chat
@@ -55,13 +49,24 @@ export default function App() {
 
   // 1. Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (!currentUser) {
         setAllUsers([]);
         setFilteredUsers([]);
         setMyChatRooms([]);
         setCurrentRoomId(null);
+        setCurrentUserData(null);
+      } else {
+        // 獲取當前使用者的資料
+        try {
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          if (userDoc.exists()) {
+            setCurrentUserData(userDoc.data());
+          }
+        } catch (error) {
+          console.error('獲取使用者資料失敗:', error);
+        }
       }
     });
     return unsubscribe;
@@ -143,7 +148,7 @@ export default function App() {
     setIsLoading(true);
     try {
       const participantData = {
-        [user.uid]: { displayName: displayName || user.email, avatarColor: '#007AFF' },
+        [user.uid]: { displayName: user.email, avatarColor: '#007AFF' },
         [targetUser.id]: { displayName: targetUser.displayName, avatarColor: targetUser.avatarColor }
       };
       const roomId = await createChatRoom({ uid1: user.uid, uid2: targetUser.id, participantData });
@@ -297,51 +302,13 @@ export default function App() {
     ]);
   };
 
-  const handleAuthAction = async () => {
-    if (!email || !password) return Alert.alert('錯誤', '請輸入帳號密碼');
-    setIsLoading(true);
-    try {
-      if (isLoginMode) {
-        await signInWithEmailAndPassword(auth, email, password);
-      } else {
-        const cred = await createUserWithEmailAndPassword(auth, email, password);
-        await createUser({
-            uid: cred.user.uid,
-            email: email,
-            displayName: displayName || 'User',
-            avatarColor: '#FF6B6B'
-        });
-      }
-    } catch (e) { Alert.alert('錯誤', e.message); }
-    finally { setIsLoading(false); }
-  };
-
   // ==========================================================================
   // 4. UI Render
   // ==========================================================================
 
   // 1. 登入頁
   if (!user) {
-    return (
-      <SafeAreaView style={styles.centerContainer}>
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ width: '100%', alignItems: 'center' }}
-        >
-          <Text style={styles.title}>{isLoginMode ? 'Chat App 登入' : '註冊新帳號'}</Text>
-          <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"/>
-          <TextInput style={styles.input} placeholder="密碼" value={password} onChangeText={setPassword} secureTextEntry/>
-          {!isLoginMode && <TextInput style={styles.input} placeholder="暱稱" value={displayName} onChangeText={setDisplayName}/>}
-          
-          <TouchableOpacity style={styles.btn} onPress={handleAuthAction} disabled={isLoading}>
-             {isLoading ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>{isLoginMode ? '登入' : '註冊'}</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setIsLoginMode(!isLoginMode)} style={{marginTop:20}}>
-            <Text style={{color:'#007AFF'}}>{isLoginMode ? '還沒有帳號?去註冊' : '已有帳號?去登入'}</Text>
-          </TouchableOpacity>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    );
+    return <LoginScreen />;
   }
 
   // 2. 聊天室頁 (修正鍵盤問題)
@@ -375,61 +342,27 @@ export default function App() {
             keyExtractor={item => item.id}
             style={{flex:1, paddingHorizontal:10}}
             contentContainerStyle={{ paddingBottom: 10 }} // 底部留一點空間
-            renderItem={({item}) => {
-              const isMe = item.senderId === user.uid;
-              return (
-                <TouchableOpacity 
+            renderItem={({item}) => (
+                <MessageBubble
+                  currentMessage={item}
+                  isMe={item.senderId === user.uid}
                   onLongPress={() => handleLongPressMessage(item.id)}
-                  activeOpacity={0.8}
-                  style={[styles.msgRow, isMe ? {justifyContent:'flex-end'} : {justifyContent:'flex-start'}]}
-                >
-                  <View style={[styles.msgBubble, isMe ? styles.msgBubbleMe : styles.msgBubbleOther]}>
-                    {item.type === 'image' ? (
-                      <Image 
-                        source={{uri: item.image}} 
-                        style={{width: 200, height: 150, borderRadius: 10}} 
-                        resizeMode="cover" 
-                      />
-                    ) : (
-                      <Text style={isMe ? styles.textMe : styles.textOther}>{item.text}</Text>
-                    )}
-                    <View style={{flexDirection:'row', justifyContent:'flex-end', marginTop:4}}>
-                      <Text style={styles.timeText}>
-                        {item.createdAt ? new Date(item.createdAt.seconds * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '...'}
-                      </Text>
-                      {isMe && (
-                         <Text style={{fontSize:10, color:'rgba(255,255,255,0.7)', marginLeft:4}}>{item.isRead ? '已讀' : '未讀'}</Text>
-                      )}
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            }}
-            // 當使用者拖曳列表時,自動收起鍵盤
-            onScrollBeginDrag={Keyboard.dismiss} 
+                />
+            )}
+            onScrollBeginDrag={Keyboard.dismiss}
             onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           />
           
           <View style={styles.inputBar}>
-            <TouchableOpacity 
-              onPress={handlePickImage} 
-              style={styles.iconBtn}
-              disabled={isLoading}
-            >
-              <Text style={{fontSize:24}}>{isLoading ? '⏳' : '📷'}</Text>
-            </TouchableOpacity>
-            <TextInput 
-              style={styles.inputMsg} 
-              value={inputText} 
-              onChangeText={setInputText} 
-              placeholder="輸入訊息..."
-              multiline
-              editable={!isLoading}
+            <ChatInputBar 
+              inputText={inputText}
+              setInputText={setInputText}
+              onSend={handleSendMessage}
+              onPickImage={handlePickImage}
+              isLoading={isLoading}
             />
-            <TouchableOpacity onPress={handleSendMessage} style={styles.sendBtn} disabled={isLoading}>
-              {isLoading ? <ActivityIndicator size="small" color="#fff"/> : <Text style={{color:'#fff', fontWeight:'bold'}}>發送</Text>}
-            </TouchableOpacity>
+
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -440,7 +373,12 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>訊息</Text>
+        <View>
+          <Text style={styles.headerTitle}>訊息</Text>
+          {currentUserData && (
+            <Text style={styles.userNameText}>{currentUserData.displayName}</Text>
+          )}
+        </View>
         <TouchableOpacity onPress={() => signOut(auth)}><Text style={{color:'red'}}>登出</Text></TouchableOpacity>
       </View>
       <View style={styles.searchBar}>
@@ -498,13 +436,9 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  centerContainer: { flex: 1, justifyContent: 'center', padding: 20 },
-  title: { fontSize: 32, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
-  input: { backgroundColor: '#f0f0f0', padding: 15, borderRadius: 10, marginBottom: 10, width: '100%' },
-  btn: { backgroundColor: '#007AFF', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10, width: '100%' },
-  btnText: { color: '#fff', fontWeight: 'bold' },
   header: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', padding:15, borderBottomWidth:1, borderBottomColor:'#eee', backgroundColor: '#fff' },
   headerTitle: { fontSize:18, fontWeight:'bold' },
+  userNameText: { fontSize:12, color:'#666', marginTop:2 },
   searchBar: { padding: 10, backgroundColor: '#fff' },
   searchInput: { backgroundColor: '#f0f0f0', padding: 10, borderRadius: 8 },
   sectionTitle: { fontSize:14, color:'#666', margin:15, fontWeight:'600' },
@@ -515,15 +449,4 @@ const styles = StyleSheet.create({
   chatTime: { fontSize:12, color:'#999' },
   chatPreview: { color:'#666', flex:1 },
   badge: { backgroundColor:'#ff3b30', borderRadius:10, width:20, height:20, justifyContent:'center', alignItems:'center', marginLeft:5 },
-  msgRow: { marginVertical:5, flexDirection:'row' },
-  msgBubble: { padding:10, borderRadius:15, maxWidth:'75%' },
-  msgBubbleMe: { backgroundColor:'#007AFF', borderBottomRightRadius:2 },
-  msgBubbleOther: { backgroundColor:'#f0f0f0', borderBottomLeftRadius:2 },
-  textMe: { color:'#fff', fontSize:16 },
-  textOther: { color:'#000', fontSize:16 },
-  timeText: { fontSize:10, color:'#ddd', alignSelf:'flex-end' },
-  inputBar: { flexDirection:'row', padding:10, borderTopWidth:1, borderColor:'#eee', alignItems:'center', backgroundColor:'#fff' },
-  inputMsg: { flex:1, backgroundColor:'#f0f0f0', borderRadius:20, paddingHorizontal:15, paddingVertical:8, marginRight:10, fontSize:16, maxHeight: 100 },
-  sendBtn: { backgroundColor:'#007AFF', paddingHorizontal:15, paddingVertical:8, borderRadius:20 },
-  iconBtn: { marginRight:10 },
 });
